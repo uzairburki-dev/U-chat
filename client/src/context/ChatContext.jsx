@@ -16,8 +16,14 @@ export const ChatProvider = ({ children }) => {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
 
-  // Filters & Tabs
-  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'direct' | 'groups' | 'online'
+  // Message Requests & Group Invitations
+  const [messageRequests, setMessageRequests] = useState([]);
+  const [groupInvitations, setGroupInvitations] = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  const [loadingInvitations, setLoadingInvitations] = useState(false);
+
+  // Filters & Tabs: 'all' | 'direct' | 'groups' | 'requests' | 'invitations' | 'online'
+  const [activeTab, setActiveTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [messageSearchQuery, setMessageSearchQuery] = useState('');
   const [isSearchInChatOpen, setIsSearchInChatOpen] = useState(false);
@@ -30,7 +36,9 @@ export const ChatProvider = ({ children }) => {
   // Modals
   const [newChatModalOpen, setNewChatModalOpen] = useState(false);
   const [createGroupModalOpen, setCreateGroupModalOpen] = useState(false);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [deleteGroupModalOpen, setDeleteGroupModalOpen] = useState(false);
 
   // Real-time typing tracking: { [convId]: [user1, user2] }
   const [typingMap, setTypingMap] = useState({});
@@ -55,15 +63,49 @@ export const ChatProvider = ({ children }) => {
     }
   }, []);
 
+  // Fetch pending message requests
+  const fetchMessageRequests = useCallback(async () => {
+    try {
+      setLoadingRequests(true);
+      const res = await axios.get('/api/conversations/requests');
+      if (res.data?.success) {
+        setMessageRequests(res.data.data);
+      }
+    } catch (err) {
+      console.error('Error fetching message requests:', err);
+    } finally {
+      setLoadingRequests(false);
+    }
+  }, []);
+
+  // Fetch pending group invitations
+  const fetchGroupInvitations = useCallback(async () => {
+    try {
+      setLoadingInvitations(true);
+      const res = await axios.get('/api/conversations/invitations');
+      if (res.data?.success) {
+        setGroupInvitations(res.data.data);
+      }
+    } catch (err) {
+      console.error('Error fetching group invitations:', err);
+    } finally {
+      setLoadingInvitations(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (user) {
       fetchConversations();
+      fetchMessageRequests();
+      fetchGroupInvitations();
     } else {
       setConversations([]);
+      setMessageRequests([]);
+      setGroupInvitations([]);
       setActiveConversation(null);
       setMessages([]);
     }
-  }, [user, fetchConversations]);
+  }, [user, fetchConversations, fetchMessageRequests, fetchGroupInvitations]);
 
   // Fetch messages for active conversation
   const fetchMessages = useCallback(async (conversationId, search = '') => {
@@ -88,7 +130,7 @@ export const ChatProvider = ({ children }) => {
     if (!conversationId) return;
     try {
       await axios.put(`/api/messages/${conversationId}/read`);
-      
+
       // Update local unread state
       setConversations((prev) =>
         prev.map((c) => {
@@ -127,7 +169,7 @@ export const ChatProvider = ({ children }) => {
     }
   }, [socket, fetchMessages, markAsRead]);
 
-  // Direct chat with a user
+  // Direct chat with a user (First time creates a Message Request)
   const openDirectChatWithUser = async (targetUser) => {
     try {
       const res = await axios.post('/api/conversations/direct', {
@@ -145,10 +187,46 @@ export const ChatProvider = ({ children }) => {
       }
     } catch (err) {
       console.error('Error starting direct chat:', err);
+      alert(err.response?.data?.message || 'Error opening conversation');
     }
   };
 
-  // Create Group
+  // Respond to Message Request (Accept or Decline)
+  const respondToMessageRequest = async (conversationId, action) => {
+    try {
+      const res = await axios.post(`/api/conversations/${conversationId}/request`, { action });
+      if (res.data?.success) {
+        // Remove from requests list
+        setMessageRequests((prev) => prev.filter((r) => r._id !== conversationId));
+
+        if (action === 'accept') {
+          const updatedConv = res.data.data;
+          setConversations((prev) => {
+            const index = prev.findIndex((c) => c._id === conversationId);
+            if (index > -1) {
+              const copy = [...prev];
+              copy[index] = updatedConv;
+              return copy;
+            }
+            return [updatedConv, ...prev];
+          });
+          selectConversation(updatedConv);
+        } else {
+          // Declined
+          setConversations((prev) => prev.filter((c) => c._id !== conversationId));
+          if (activeConversation?._id === conversationId) {
+            setActiveConversation(null);
+            setMessages([]);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error responding to message request:', err);
+      alert(err.response?.data?.message || 'Error responding to request');
+    }
+  };
+
+  // Create Group (Invites are sent to selected members)
   const createGroup = async (groupData) => {
     try {
       const res = await axios.post('/api/conversations/group', groupData);
@@ -161,6 +239,69 @@ export const ChatProvider = ({ children }) => {
       }
     } catch (err) {
       console.error('Error creating group:', err);
+      throw err;
+    }
+  };
+
+  // Invite members to group (Group Admin/Creator)
+  const inviteToGroup = async (conversationId, userIds) => {
+    try {
+      const res = await axios.post(`/api/conversations/${conversationId}/invite`, { userIds });
+      if (res.data?.success) {
+        const updated = res.data.data;
+        setConversations((prev) =>
+          prev.map((c) => (c._id === conversationId ? updated : c))
+        );
+        if (activeConversation?._id === conversationId) {
+          setActiveConversation(updated);
+        }
+        setInviteModalOpen(false);
+        return res.data;
+      }
+    } catch (err) {
+      console.error('Error inviting users to group:', err);
+      throw err;
+    }
+  };
+
+  // Respond to Group Invitation (Accept or Decline)
+  const respondToGroupInvitation = async (conversationId, action) => {
+    try {
+      const res = await axios.post(`/api/conversations/${conversationId}/invitation`, { action });
+      if (res.data?.success) {
+        setGroupInvitations((prev) =>
+          prev.filter((inv) => inv.conversationId !== conversationId)
+        );
+
+        if (action === 'accept') {
+          const joinedGroup = res.data.data;
+          setConversations((prev) => [joinedGroup, ...prev]);
+          selectConversation(joinedGroup);
+        }
+      }
+    } catch (err) {
+      console.error('Error responding to group invitation:', err);
+      alert(err.response?.data?.message || 'Error responding to invitation');
+    }
+  };
+
+  // Delete Group permanently (Creator Only)
+  const deleteGroup = async (conversationId) => {
+    try {
+      const res = await axios.delete(`/api/conversations/${conversationId}/group`);
+      if (res.data?.success) {
+        setConversations((prev) => prev.filter((c) => c._id !== conversationId));
+        if (activeConversation?._id === conversationId) {
+          setActiveConversation(null);
+          setMessages([]);
+        }
+        setShowRightSidebar(false);
+        setDeleteGroupModalOpen(false);
+        return res.data;
+      }
+    } catch (err) {
+      console.error('Error deleting group:', err);
+      alert(err.response?.data?.message || 'Error deleting group');
       throw err;
     }
   };
@@ -214,13 +355,14 @@ export const ChatProvider = ({ children }) => {
       }
     } catch (err) {
       console.error('Error sending message:', err);
+      alert(err.response?.data?.message || 'Failed to send message');
       throw err;
     } finally {
       setSending(false);
     }
   };
 
-  // Delete message
+  // Delete message (sender or group admin)
   const deleteMessage = async (messageId, deleteType = 'forEveryone') => {
     try {
       const res = await axios.delete(`/api/messages/${messageId}`, {
@@ -246,6 +388,7 @@ export const ChatProvider = ({ children }) => {
       }
     } catch (err) {
       console.error('Error deleting message:', err);
+      alert(err.response?.data?.message || 'Error deleting message');
     }
   };
 
@@ -282,6 +425,7 @@ export const ChatProvider = ({ children }) => {
       }
     } catch (err) {
       console.error('Error leaving group:', err);
+      alert(err.response?.data?.message || 'Error leaving group');
     }
   };
 
@@ -346,6 +490,79 @@ export const ChatProvider = ({ children }) => {
       });
     };
 
+    // Group deleted by creator in real time
+    const handleGroupDeleted = ({ conversationId, groupName, deletedBy }) => {
+      setConversations((prev) => prev.filter((c) => c._id !== conversationId));
+      if (activeConversationRef.current?._id === conversationId) {
+        setActiveConversation(null);
+        setMessages([]);
+        setShowRightSidebar(false);
+      }
+      playNotificationSound();
+      alert(`The group "${groupName}" was deleted by ${deletedBy}.`);
+    };
+
+    // Real-time message request received
+    const handleMessageRequestReceived = ({ conversation }) => {
+      playNotificationSound();
+      fetchMessageRequests();
+      fetchConversations();
+    };
+
+    // Message request accepted
+    const handleMessageRequestAccepted = ({ conversation }) => {
+      fetchMessageRequests();
+      fetchConversations();
+      if (activeConversationRef.current?._id === conversation._id) {
+        setActiveConversation(conversation);
+      }
+    };
+
+    // Message request declined
+    const handleMessageRequestDeclined = ({ conversationId }) => {
+      fetchMessageRequests();
+      setConversations((prev) => prev.filter((c) => c._id !== conversationId));
+      if (activeConversationRef.current?._id === conversationId) {
+        setActiveConversation(null);
+        setMessages([]);
+      }
+    };
+
+    // Group invitation received
+    const handleGroupInvitationReceived = () => {
+      playNotificationSound();
+      fetchGroupInvitations();
+    };
+
+    // Group invitation accepted
+    const handleGroupInvitationAccepted = ({ conversation, message }) => {
+      fetchGroupInvitations();
+      fetchConversations();
+      if (activeConversationRef.current?._id === conversation._id) {
+        setActiveConversation(conversation);
+        if (message) {
+          setMessages((prev) => [...prev, message]);
+        }
+      }
+    };
+
+    // Member left group
+    const handleMemberLeftGroup = ({ conversationId, userId, message }) => {
+      fetchConversations();
+      if (activeConversationRef.current?._id === conversationId) {
+        setActiveConversation((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            participants: prev.participants.filter((p) => (p._id || p).toString() !== userId.toString())
+          };
+        });
+        if (message) {
+          setMessages((prev) => [...prev, message]);
+        }
+      }
+    };
+
     // User typing
     const handleUserTyping = ({ conversationId, user: typingUser }) => {
       setTypingMap((prev) => {
@@ -408,6 +625,13 @@ export const ChatProvider = ({ children }) => {
         prev.map((c) => (c._id === conversationId ? { ...c, lastMessage } : c))
       );
     });
+    socket.on('group_deleted', handleGroupDeleted);
+    socket.on('message_request_received', handleMessageRequestReceived);
+    socket.on('message_request_accepted', handleMessageRequestAccepted);
+    socket.on('message_request_declined', handleMessageRequestDeclined);
+    socket.on('group_invitation_received', handleGroupInvitationReceived);
+    socket.on('group_invitation_accepted', handleGroupInvitationAccepted);
+    socket.on('member_left_group', handleMemberLeftGroup);
     socket.on('user_typing', handleUserTyping);
     socket.on('user_stop_typing', handleUserStopTyping);
     socket.on('messages_read', handleMessagesRead);
@@ -417,16 +641,28 @@ export const ChatProvider = ({ children }) => {
     return () => {
       socket.off('new_message', handleNewMessage);
       socket.off('conversation_updated');
+      socket.off('group_deleted', handleGroupDeleted);
+      socket.off('message_request_received', handleMessageRequestReceived);
+      socket.off('message_request_accepted', handleMessageRequestAccepted);
+      socket.off('message_request_declined', handleMessageRequestDeclined);
+      socket.off('group_invitation_received', handleGroupInvitationReceived);
+      socket.off('group_invitation_accepted', handleGroupInvitationAccepted);
+      socket.off('member_left_group', handleMemberLeftGroup);
       socket.off('user_typing', handleUserTyping);
       socket.off('user_stop_typing', handleUserStopTyping);
       socket.off('messages_read', handleMessagesRead);
       socket.off('message_reaction_updated', handleReactionUpdated);
       socket.off('message_deleted_event', handleMessageDeleted);
     };
-  }, [socket, user?._id, playNotificationSound, markAsRead, fetchConversations]);
+  }, [socket, user?._id, playNotificationSound, markAsRead, fetchConversations, fetchMessageRequests, fetchGroupInvitations]);
 
   // Filter conversations
   const filteredConversations = conversations.filter((c) => {
+    // If conversation is a pending request for ME, hide from normal list (viewable in Requests tab)
+    if (!c.isGroup && c.requestStatus === 'pending' && c.requestedBy && c.requestedBy !== user?._id) {
+      if (activeTab !== 'requests') return false;
+    }
+
     // Tab filter
     if (activeTab === 'direct' && c.isGroup) return false;
     if (activeTab === 'groups' && !c.isGroup) return false;
@@ -463,6 +699,10 @@ export const ChatProvider = ({ children }) => {
         loadingConversations,
         loadingMessages,
         sending,
+        messageRequests,
+        groupInvitations,
+        loadingRequests,
+        loadingInvitations,
         activeTab,
         setActiveTab,
         searchQuery,
@@ -481,12 +721,20 @@ export const ChatProvider = ({ children }) => {
         setNewChatModalOpen,
         createGroupModalOpen,
         setCreateGroupModalOpen,
+        inviteModalOpen,
+        setInviteModalOpen,
         profileModalOpen,
         setProfileModalOpen,
+        deleteGroupModalOpen,
+        setDeleteGroupModalOpen,
         typingUsers: activeConversation ? (typingMap[activeConversation._id] || []) : [],
         selectConversation,
         openDirectChatWithUser,
+        respondToMessageRequest,
         createGroup,
+        inviteToGroup,
+        respondToGroupInvitation,
+        deleteGroup,
         sendMessage,
         markAsRead,
         deleteMessage,
@@ -494,6 +742,8 @@ export const ChatProvider = ({ children }) => {
         leaveGroup,
         deleteConversation,
         fetchConversations,
+        fetchMessageRequests,
+        fetchGroupInvitations,
         fetchMessages
       }}
     >

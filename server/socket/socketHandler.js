@@ -154,6 +154,26 @@ export const initSocket = (io) => {
       });
     });
 
+    // Group deleted by creator
+    socket.on('group_deleted_signal', ({ conversationId, groupName, participants }) => {
+      if (!conversationId) return;
+      io.to(`conversation:${conversationId}`).emit('group_deleted', {
+        conversationId,
+        groupName,
+        deletedBy: socket.user.fullName
+      });
+      if (Array.isArray(participants)) {
+        participants.forEach((p) => {
+          const pId = p._id ? p._id.toString() : p.toString();
+          io.to(`user:${pId}`).emit('group_deleted', {
+            conversationId,
+            groupName,
+            deletedBy: socket.user.fullName
+          });
+        });
+      }
+    });
+
     // Handle disconnect
     socket.on('disconnect', async () => {
       console.log(`🔌 Socket disconnected: ${socket.id} (User: ${socket.user.username})`);

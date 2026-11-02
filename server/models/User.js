@@ -51,6 +51,18 @@ const userSchema = new mongoose.Schema(
     lastSeen: {
       type: Date,
       default: Date.now
+    },
+    isEmailVerified: {
+      type: Boolean,
+      default: false
+    },
+    emailOtp: {
+      type: String,
+      default: null
+    },
+    emailOtpExpires: {
+      type: Date,
+      default: null
     }
   },
   {
@@ -73,10 +85,12 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Safe JSON serialization (strip password)
+// Safe JSON serialization (strip password and sensitive fields)
 userSchema.methods.toSafeObject = function () {
   const obj = this.toObject();
   delete obj.password;
+  delete obj.emailOtp;
+  delete obj.emailOtpExpires;
   return obj;
 };
 

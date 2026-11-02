@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MessageSquare, Lock, Mail, ArrowRight, Sparkles, Loader2 } from 'lucide-react';
+import { MessageSquare, Lock, Mail, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 
@@ -19,7 +19,10 @@ export const LoginPage = ({ onNavigateToRegister }) => {
     try {
       setError('');
       setSubmitting(true);
-      await login(identifier.trim(), password);
+      const res = await login(identifier.trim(), password);
+      if (res?.requireVerification) {
+        onNavigateToRegister(res.email, 'verify');
+      }
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Invalid credentials');
     } finally {
@@ -78,8 +81,9 @@ export const LoginPage = ({ onNavigateToRegister }) => {
             </div>
 
             {error && (
-              <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-600 dark:text-rose-400 animate-slide-up">
-                {error}
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-600 dark:text-rose-400 animate-slide-up flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{error}</span>
               </div>
             )}
 
@@ -162,7 +166,7 @@ export const LoginPage = ({ onNavigateToRegister }) => {
               Don't have an account?{' '}
               <button
                 type="button"
-                onClick={onNavigateToRegister}
+                onClick={() => onNavigateToRegister('', 'form')}
                 className="text-brand-600 dark:text-brand-400 font-bold hover:underline"
               >
                 Create Account

@@ -11,6 +11,8 @@ import { MessageSquare, Loader2 } from 'lucide-react';
 const AppContent = () => {
   const { isAuthenticated, loading } = useAuth();
   const [authView, setAuthView] = useState('login'); // 'login' | 'register'
+  const [registerEmail, setRegisterEmail] = useState('');
+  const [registerStep, setRegisterStep] = useState('form');
 
   if (loading) {
     return (
@@ -28,9 +30,19 @@ const AppContent = () => {
 
   if (!isAuthenticated) {
     return authView === 'login' ? (
-      <LoginPage onNavigateToRegister={() => setAuthView('register')} />
+      <LoginPage
+        onNavigateToRegister={(email = '', step = 'form') => {
+          setRegisterEmail(email);
+          setRegisterStep(step);
+          setAuthView('register');
+        }}
+      />
     ) : (
-      <RegisterPage onNavigateToLogin={() => setAuthView('login')} />
+      <RegisterPage
+        initialEmail={registerEmail}
+        initialStep={registerStep}
+        onNavigateToLogin={() => setAuthView('login')}
+      />
     );
   }
 

@@ -22,6 +22,44 @@ const conversationSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     },
+    admins: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      }
+    ],
+    requestStatus: {
+      type: String,
+      enum: ['accepted', 'pending', 'declined'],
+      default: 'accepted'
+    },
+    requestedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    groupInvitations: [
+      {
+        user: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          required: true
+        },
+        invitedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          required: true
+        },
+        status: {
+          type: String,
+          enum: ['pending', 'accepted', 'declined'],
+          default: 'pending'
+        },
+        invitedAt: {
+          type: Date,
+          default: Date.now
+        }
+      }
+    ],
     groupAvatar: {
       type: String,
       default: ''

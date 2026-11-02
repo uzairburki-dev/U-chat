@@ -81,9 +81,14 @@ export const CreateGroupModal = () => {
             <div className="p-2 rounded-xl bg-brand-500/10 text-brand-500">
               <Users className="w-5 h-5" />
             </div>
-            <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
-              Create New Group
-            </h3>
+            <div>
+              <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
+                Create New Group
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                Members receive an invite and must accept to join
+              </p>
+            </div>
           </div>
           <button
             onClick={() => setCreateGroupModalOpen(false)}
@@ -215,7 +220,7 @@ export const CreateGroupModal = () => {
                   : 'bg-brand-600 hover:bg-brand-500 shadow-brand-500/20 active:scale-95'
               }`}
             >
-              {submitting ? 'Creating...' : 'Create Group'}
+              {submitting ? 'Creating...' : 'Create Group & Send Invites'}
             </button>
           </div>
         </form>

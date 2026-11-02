@@ -5,6 +5,8 @@ import { ChatArea } from '../components/ChatArea/ChatArea';
 import { ChatDetailsSidebar } from '../components/RightSidebar/ChatDetailsSidebar';
 import { NewChatModal } from '../components/Modals/NewChatModal';
 import { CreateGroupModal } from '../components/Modals/CreateGroupModal';
+import { InviteMembersModal } from '../components/Modals/InviteMembersModal';
+import { DeleteGroupModal } from '../components/Modals/DeleteGroupModal';
 import { ProfileModal } from '../components/Modals/ProfileModal';
 import { ImageLightboxModal } from '../components/Modals/ImageLightboxModal';
 
@@ -33,6 +35,8 @@ export const ChatDashboard = () => {
       {/* Global Modals */}
       <NewChatModal />
       <CreateGroupModal />
+      <InviteMembersModal />
+      <DeleteGroupModal />
       <ProfileModal />
       <ImageLightboxModal />
     </div>

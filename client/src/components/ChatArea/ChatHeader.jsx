@@ -6,7 +6,10 @@ import {
   Video,
   Info,
   Users,
-  X
+  X,
+  UserPlus,
+  Trash2,
+  ShieldCheck
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
@@ -22,6 +25,8 @@ export const ChatHeader = () => {
     typingUsers,
     showRightSidebar,
     setShowRightSidebar,
+    setInviteModalOpen,
+    setDeleteGroupModalOpen,
     isSearchInChatOpen,
     setIsSearchInChatOpen,
     messageSearchQuery,
@@ -31,10 +36,21 @@ export const ChatHeader = () => {
 
   if (!activeConversation) return null;
 
+  const currentUserId = user?._id?.toString();
   const isGroup = activeConversation.isGroup;
+  const isCreator =
+    isGroup &&
+    (activeConversation.groupAdmin?._id || activeConversation.groupAdmin)?.toString() ===
+      currentUserId;
+  const isGroupAdmin =
+    isCreator ||
+    (isGroup &&
+      activeConversation.admins &&
+      activeConversation.admins.some((a) => (a._id || a)?.toString() === currentUserId));
+
   const otherParticipant = isGroup
     ? null
-    : activeConversation.participants?.find((p) => p._id !== user?._id);
+    : activeConversation.participants?.find((p) => (p._id || p) !== user?._id);
 
   const title = isGroup ? activeConversation.groupName : otherParticipant?.fullName || 'User';
   const avatarSrc = isGroup ? activeConversation.groupAvatar : otherParticipant?.avatar;
@@ -52,7 +68,11 @@ export const ChatHeader = () => {
   const getSubtitle = () => {
     if (typingUsers.length > 0) {
       const names = typingUsers.map((u) => u.fullName?.split(' ')[0] || u.username).join(', ');
-      return <span className="text-brand-600 dark:text-brand-400 font-medium animate-pulse">{names} typing...</span>;
+      return (
+        <span className="text-brand-600 dark:text-brand-400 font-semibold animate-pulse">
+          {names} typing...
+        </span>
+      );
     }
 
     if (isGroup) {
@@ -61,7 +81,7 @@ export const ChatHeader = () => {
     }
 
     if (isOnline) {
-      return <span className="text-emerald-500 font-medium">Active now</span>;
+      return <span className="text-emerald-500 font-medium">Online</span>;
     }
 
     return formatLastSeen(otherParticipant?.lastSeen);
@@ -72,14 +92,14 @@ export const ChatHeader = () => {
   };
 
   return (
-    <div className="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-20">
-      <div className="flex items-center justify-between px-4 py-3">
+    <div className="border-b border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#202c33]/95 backdrop-blur-md sticky top-0 z-20 select-none shadow-2xs">
+      <div className="flex items-center justify-between px-4 py-2.5">
         {/* Left: Back button (mobile) & Profile info */}
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => selectConversation(null)}
             className="md:hidden p-1.5 -ml-1 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
-            title="Back to conversations"
+            title="Back to chats"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
@@ -98,9 +118,17 @@ export const ChatHeader = () => {
             />
 
             <div className="min-w-0">
-              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate group-hover:text-brand-600 transition-colors">
-                {title}
-              </h2>
+              <div className="flex items-center gap-1.5">
+                <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate group-hover:text-brand-600 transition-colors">
+                  {title}
+                </h2>
+                {!isGroup && otherParticipant?.isEmailVerified && (
+                  <ShieldCheck
+                    className="w-3.5 h-3.5 text-brand-500 flex-shrink-0"
+                    title="Verified User"
+                  />
+                )}
+              </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                 {getSubtitle()}
               </p>
@@ -110,6 +138,28 @@ export const ChatHeader = () => {
 
         {/* Right: Actions */}
         <div className="flex items-center gap-1">
+          {/* Group Admin: Invite members shortcut */}
+          {isGroupAdmin && (
+            <button
+              onClick={() => setInviteModalOpen(true)}
+              className="p-2 text-slate-600 dark:text-slate-300 hover:text-brand-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"
+              title="Invite members"
+            >
+              <UserPlus className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Group Creator: Delete group shortcut */}
+          {isCreator && (
+            <button
+              onClick={() => setDeleteGroupModalOpen(true)}
+              className="p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-all"
+              title="Delete group permanently"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+
           {/* Search in chat */}
           <button
             onClick={() => setIsSearchInChatOpen(!isSearchInChatOpen)}
@@ -158,7 +208,7 @@ export const ChatHeader = () => {
 
       {/* Inline Search in Chat Dropdown */}
       {isSearchInChatOpen && (
-        <div className="px-4 py-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2 bg-slate-50/80 dark:bg-slate-850/80 animate-slide-up">
+        <div className="px-4 py-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2 bg-slate-50/90 dark:bg-slate-850/90 animate-slide-up">
           <Search className="w-4 h-4 text-slate-400" />
           <input
             type="text"

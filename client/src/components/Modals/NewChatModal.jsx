@@ -54,9 +54,14 @@ export const NewChatModal = () => {
             <div className="p-2 rounded-xl bg-brand-500/10 text-brand-500">
               <MessageSquare className="w-5 h-5" />
             </div>
-            <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
-              Start a Conversation
-            </h3>
+            <div>
+              <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
+                New Conversation
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                First-time chats create a message request
+              </p>
+            </div>
           </div>
           <button
             onClick={() => setNewChatModalOpen(false)}

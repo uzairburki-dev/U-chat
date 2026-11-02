@@ -2,14 +2,27 @@ import React from 'react';
 import { MessageSquareOff, Plus } from 'lucide-react';
 import { useChat } from '../../context/ChatContext';
 import { ConversationItem } from './ConversationItem';
+import { MessageRequestsList } from './MessageRequestsList';
+import { GroupInvitationsList } from './GroupInvitationsList';
 
 export const ConversationList = () => {
   const {
     conversations,
     loadingConversations,
+    activeTab,
     setNewChatModalOpen,
     searchQuery
   } = useChat();
+
+  // If user selected Requests tab, render Message Requests list
+  if (activeTab === 'requests') {
+    return <MessageRequestsList />;
+  }
+
+  // If user selected Invites tab, render Group Invitations list
+  if (activeTab === 'invitations') {
+    return <GroupInvitationsList />;
+  }
 
   if (loadingConversations) {
     return (
@@ -29,14 +42,14 @@ export const ConversationList = () => {
 
   if (conversations.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+      <div className="flex-1 flex flex-col items-center justify-center p-6 text-center select-none">
         <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-3">
           <MessageSquareOff className="w-6 h-6" />
         </div>
         <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">
           {searchQuery ? 'No conversations found' : 'No chats yet'}
         </h4>
-        <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mb-4">
+        <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mb-4 leading-relaxed">
           {searchQuery
             ? 'Try searching with a different name or start a new chat.'
             : 'Start a direct chat with your team members or create a group.'}
@@ -44,7 +57,7 @@ export const ConversationList = () => {
 
         <button
           onClick={() => setNewChatModalOpen(true)}
-          className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-sm transition-all"
+          className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-500 rounded-xl shadow-xs transition-all active:scale-95"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>New Chat</span>

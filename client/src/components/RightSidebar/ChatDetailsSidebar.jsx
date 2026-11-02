@@ -13,7 +13,8 @@ import {
   Mail,
   Calendar,
   ShieldCheck,
-  Plus
+  UserPlus,
+  ShieldAlert
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
@@ -29,6 +30,8 @@ export const ChatDetailsSidebar = () => {
     showRightSidebar,
     setShowRightSidebar,
     setLightboxImage,
+    setInviteModalOpen,
+    setDeleteGroupModalOpen,
     leaveGroup,
     deleteConversation
   } = useChat();
@@ -38,10 +41,21 @@ export const ChatDetailsSidebar = () => {
 
   if (!showRightSidebar || !activeConversation) return null;
 
+  const currentUserId = user?._id?.toString();
   const isGroup = activeConversation.isGroup;
+  const isCreator =
+    isGroup &&
+    (activeConversation.groupAdmin?._id || activeConversation.groupAdmin)?.toString() ===
+      currentUserId;
+  const isGroupAdmin =
+    isCreator ||
+    (isGroup &&
+      activeConversation.admins &&
+      activeConversation.admins.some((a) => (a._id || a)?.toString() === currentUserId));
+
   const otherParticipant = isGroup
     ? null
-    : activeConversation.participants?.find((p) => p._id !== user?._id);
+    : activeConversation.participants?.find((p) => (p._id || p) !== user?._id);
 
   const title = isGroup ? activeConversation.groupName : otherParticipant?.fullName || 'User';
   const avatarSrc = isGroup ? activeConversation.groupAvatar : otherParticipant?.avatar;
@@ -135,16 +149,18 @@ export const ChatDetailsSidebar = () => {
                   {title}
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {isGroup ? `${activeConversation.participants?.length || 0} members` : `@${otherParticipant?.username}`}
+                  {isGroup
+                    ? `${activeConversation.participants?.length || 0} active members`
+                    : `@${otherParticipant?.username}`}
                 </p>
               </div>
 
               {/* Status/Bio */}
               <div className="w-full p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200/60 dark:border-slate-750 text-left space-y-1">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  About & Status
+                  About & Description
                 </span>
-                <p className="text-xs text-slate-700 dark:text-slate-300">
+                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
                   {isGroup
                     ? activeConversation.groupDescription || 'No description provided.'
                     : otherParticipant?.bio || 'Hey there! I am using ChatBoat.'}
@@ -157,19 +173,39 @@ export const ChatDetailsSidebar = () => {
               </div>
             </div>
 
-            {/* If Group: Members List */}
+            {/* If Group: Members List & Add Members Action */}
             {isGroup && (
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
                     Group Members ({activeConversation.participants?.length || 0})
                   </span>
+
+                  {/* Admin can send invitation to add new members */}
+                  {isGroupAdmin && (
+                    <button
+                      onClick={() => setInviteModalOpen(true)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-950/40 rounded-lg transition-colors"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>Invite</span>
+                    </button>
+                  )}
                 </div>
 
-                <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1 divide-y divide-slate-100 dark:divide-slate-800/40">
                   {activeConversation.participants?.map((member) => {
-                    const isAdmin = activeConversation.groupAdmin?._id === member._id || activeConversation.groupAdmin === member._id;
-                    const isMemOnline = isUserOnline(member._id) || member.status === 'online';
+                    const isMemCreator =
+                      (activeConversation.groupAdmin?._id || activeConversation.groupAdmin)?.toString() ===
+                      (member._id || member)?.toString();
+                    const isMemAdmin =
+                      isMemCreator ||
+                      (activeConversation.admins &&
+                        activeConversation.admins.some(
+                          (a) => (a._id || a)?.toString() === (member._id || member)?.toString()
+                        ));
+                    const isMemOnline =
+                      isUserOnline(member._id) || member.status === 'online';
 
                     return (
                       <div
@@ -194,11 +230,15 @@ export const ChatDetailsSidebar = () => {
                           </div>
                         </div>
 
-                        {isAdmin && (
+                        {isMemCreator ? (
+                          <span className="px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 rounded-full border border-emerald-200 dark:border-emerald-800">
+                            Creator
+                          </span>
+                        ) : isMemAdmin ? (
                           <span className="px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 rounded-full border border-amber-200 dark:border-amber-800/40">
                             Admin
                           </span>
-                        )}
+                        ) : null}
                       </div>
                     );
                   })}
@@ -213,29 +253,51 @@ export const ChatDetailsSidebar = () => {
                 className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors"
               >
                 <div className="flex items-center gap-2.5">
-                  {muted ? <BellOff className="w-4 h-4 text-amber-500" /> : <Bell className="w-4 h-4 text-slate-500" />}
+                  {muted ? (
+                    <BellOff className="w-4 h-4 text-amber-500" />
+                  ) : (
+                    <Bell className="w-4 h-4 text-slate-500" />
+                  )}
                   <span>{muted ? 'Muted Notifications' : 'Mute Notifications'}</span>
                 </div>
                 <span className="text-[10px] text-slate-400">{muted ? 'On' : 'Off'}</span>
               </button>
 
               {isGroup ? (
-                <button
-                  onClick={() => {
-                    if (window.confirm('Are you sure you want to leave this group?')) {
-                      leaveGroup(activeConversation._id);
-                      setShowRightSidebar(false);
-                    }
-                  }}
-                  className="w-full flex items-center gap-2.5 p-2.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/30 text-xs font-semibold text-rose-600 transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Leave Group</span>
-                </button>
+                <>
+                  {/* Leave Group (All Members) */}
+                  <button
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          'Are you sure you want to leave this group? You will no longer receive any messages from this group.'
+                        )
+                      ) {
+                        leaveGroup(activeConversation._id);
+                        setShowRightSidebar(false);
+                      }
+                    }}
+                    className="w-full flex items-center gap-2.5 p-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4 text-slate-500" />
+                    <span>Leave Group</span>
+                  </button>
+
+                  {/* Delete Group Permanently (Creator Only) */}
+                  {isCreator && (
+                    <button
+                      onClick={() => setDeleteGroupModalOpen(true)}
+                      className="w-full flex items-center gap-2.5 p-2.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/30 text-xs font-semibold text-rose-600 transition-colors border border-rose-200/50 dark:border-rose-900/40"
+                    >
+                      <Trash2 className="w-4 h-4 text-rose-600" />
+                      <span>Delete Group for Everyone</span>
+                    </button>
+                  )}
+                </>
               ) : (
                 <button
                   onClick={() => {
-                    if (window.confirm('Delete this conversation history?')) {
+                    if (window.confirm('Delete this conversation history for yourself?')) {
                       deleteConversation(activeConversation._id);
                       setShowRightSidebar(false);
                     }

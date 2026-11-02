@@ -8,8 +8,10 @@ import {
   File,
   X,
   CornerUpLeft,
-  Loader2
+  Loader2,
+  Lock
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { useChat } from '../../context/ChatContext';
 
@@ -21,9 +23,11 @@ const EMOJI_CATEGORIES = [
 ];
 
 export const MessageInput = () => {
+  const { user } = useAuth();
   const { socket } = useSocket();
   const {
     activeConversation,
+    messages,
     sendMessage,
     replyingTo,
     setReplyingTo,
@@ -32,13 +36,40 @@ export const MessageInput = () => {
 
   const [text, setText] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [attachment, setAttachment] = useState(null); // { fileUrl, fileName, fileSize, mimeType, messageType, previewUrl }
+  const [attachment, setAttachment] = useState(null);
   const [uploading, setUploading] = useState(false);
 
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const textareaRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+
+  // Check pending message request status
+  const isPendingRequest =
+    !activeConversation?.isGroup && activeConversation?.requestStatus === 'pending';
+  const isSender =
+    activeConversation?.requestedBy &&
+    (activeConversation.requestedBy._id || activeConversation.requestedBy).toString() ===
+      user?._id?.toString();
+  const isReceiver = isPendingRequest && !isSender;
+
+  const senderSentCount =
+    isPendingRequest && isSender
+      ? messages.filter((m) => (m.sender?._id || m.sender) === user?._id).length
+      : 0;
+
+  const isDisabledByRequest = isReceiver || (isSender && senderSentCount >= 1);
+
+  let placeholderText = 'Type a message... (Enter to send)';
+  if (uploading) {
+    placeholderText = 'Uploading attachment...';
+  } else if (isReceiver) {
+    placeholderText = 'Accept the message request above to start chatting...';
+  } else if (isSender && senderSentCount >= 1) {
+    placeholderText = 'Waiting for recipient to accept request before sending more...';
+  } else if (isPendingRequest && isSender && senderSentCount === 0) {
+    placeholderText = 'Send an introductory message with your request...';
+  }
 
   // Auto-resize textarea height
   useEffect(() => {
@@ -50,11 +81,14 @@ export const MessageInput = () => {
 
   // Focus input when conversation or reply changes
   useEffect(() => {
-    textareaRef.current?.focus();
-  }, [activeConversation?._id, replyingTo]);
+    if (!isDisabledByRequest) {
+      textareaRef.current?.focus();
+    }
+  }, [activeConversation?._id, replyingTo, isDisabledByRequest]);
 
   // Handle typing debounce
   const handleInputChange = (e) => {
+    if (isDisabledByRequest) return;
     setText(e.target.value);
 
     if (!socket || !activeConversation) return;
@@ -72,7 +106,7 @@ export const MessageInput = () => {
 
   // Upload file to server
   const handleFileUpload = async (file) => {
-    if (!file) return;
+    if (!file || isDisabledByRequest) return;
 
     try {
       setUploading(true);
@@ -103,7 +137,13 @@ export const MessageInput = () => {
   const handleSend = async (e) => {
     e?.preventDefault();
 
-    if ((!text.trim() && !attachment) || sending || uploading) return;
+    if (
+      (!text.trim() && !attachment) ||
+      sending ||
+      uploading ||
+      isDisabledByRequest
+    )
+      return;
 
     try {
       const payload = {
@@ -137,12 +177,13 @@ export const MessageInput = () => {
   };
 
   const handleEmojiSelect = (emoji) => {
+    if (isDisabledByRequest) return;
     setText((prev) => prev + emoji);
     textareaRef.current?.focus();
   };
 
   return (
-    <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 relative select-none">
+    <div className="border-t border-slate-200/80 dark:border-slate-800 bg-white/95 dark:bg-[#202c33]/95 backdrop-blur-md p-3 relative select-none">
       {/* Replying To Banner */}
       {replyingTo && (
         <div className="flex items-center justify-between px-3 py-2 mb-2 bg-slate-100 dark:bg-slate-800/80 rounded-xl border-l-4 border-l-brand-500 animate-slide-up text-xs">
@@ -201,7 +242,7 @@ export const MessageInput = () => {
       )}
 
       {/* Emoji Picker Popover */}
-      {showEmojiPicker && (
+      {showEmojiPicker && !isDisabledByRequest && (
         <div
           className="absolute bottom-full mb-3 left-4 w-72 sm:w-80 p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-30 animate-fade-in"
           onMouseLeave={() => setShowEmojiPicker(false)}
@@ -263,7 +304,8 @@ export const MessageInput = () => {
           <button
             type="button"
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className={`p-2 text-slate-500 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all ${
+            disabled={isDisabledByRequest}
+            className={`p-2 text-slate-500 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
               showEmojiPicker ? 'text-amber-500 bg-slate-100 dark:bg-slate-800' : ''
             }`}
             title="Emoji picker"
@@ -275,8 +317,8 @@ export const MessageInput = () => {
           <button
             type="button"
             onClick={() => imageInputRef.current?.click()}
-            disabled={uploading}
-            className="p-2 text-slate-500 hover:text-brand-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"
+            disabled={uploading || isDisabledByRequest}
+            className="p-2 text-slate-500 hover:text-brand-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             title="Attach image"
           >
             <Image className="w-5 h-5" />
@@ -286,8 +328,8 @@ export const MessageInput = () => {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="p-2 text-slate-500 hover:text-brand-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"
+            disabled={uploading || isDisabledByRequest}
+            className="p-2 text-slate-500 hover:text-brand-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             title="Attach document or file"
           >
             <Paperclip className="w-5 h-5" />
@@ -302,22 +344,33 @@ export const MessageInput = () => {
             value={text}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder={
-              uploading ? 'Uploading attachment...' : 'Type a message... (Enter to send)'
-            }
-            disabled={uploading}
-            className="w-full py-2.5 px-3.5 max-h-32 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 rounded-2xl resize-none focus:outline-none focus:ring-2 focus:ring-brand-500/30 border border-transparent focus:border-brand-500/30 text-sm leading-normal transition-all"
+            placeholder={placeholderText}
+            disabled={uploading || isDisabledByRequest}
+            className="w-full py-2.5 px-3.5 max-h-32 bg-slate-100 dark:bg-slate-800/80 text-slate-800 dark:text-slate-100 placeholder-slate-400 rounded-2xl resize-none focus:outline-none focus:ring-2 focus:ring-brand-500/30 border border-transparent focus:border-brand-500/30 text-sm leading-normal transition-all disabled:opacity-60 disabled:cursor-not-allowed"
           />
+          {isDisabledByRequest && (
+            <div className="absolute right-3 top-3 text-slate-400 pointer-events-none">
+              <Lock className="w-4 h-4" />
+            </div>
+          )}
         </div>
 
         {/* Send Button */}
         <button
           type="submit"
-          disabled={(!text.trim() && !attachment) || sending || uploading}
+          disabled={
+            (!text.trim() && !attachment) ||
+            sending ||
+            uploading ||
+            isDisabledByRequest
+          }
           className={`p-3 rounded-2xl text-white shadow-md transition-all flex-shrink-0 ${
-            (!text.trim() && !attachment) || sending || uploading
+            (!text.trim() && !attachment) ||
+            sending ||
+            uploading ||
+            isDisabledByRequest
               ? 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed opacity-60'
-              : 'bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 hover:scale-105 active:scale-95 shadow-brand-500/20'
+              : 'bg-brand-600 hover:bg-brand-500 hover:scale-105 active:scale-95 shadow-brand-500/20'
           }`}
           title="Send message"
         >

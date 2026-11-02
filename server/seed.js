@@ -65,7 +65,10 @@ const seedData = async () => {
     // Create demo users
     const createdUsers = [];
     for (const u of demoUsers) {
-      const user = await User.create(u);
+      const user = await User.create({
+        ...u,
+        isEmailVerified: true
+      });
       createdUsers.push(user);
     }
     console.log(`Created ${createdUsers.length} demo users.`);

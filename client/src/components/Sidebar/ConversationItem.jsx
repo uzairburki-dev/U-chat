@@ -128,15 +128,22 @@ export const ConversationItem = ({ conversation }) => {
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-1 mb-1">
-          <h3
-            className={`text-sm font-semibold truncate ${
-              isSelected
-                ? 'text-brand-600 dark:text-brand-400'
-                : 'text-slate-800 dark:text-slate-100'
-            }`}
-          >
-            {title}
-          </h3>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <h3
+              className={`text-sm font-semibold truncate ${
+                isSelected
+                  ? 'text-brand-600 dark:text-brand-400'
+                  : 'text-slate-800 dark:text-slate-100'
+              }`}
+            >
+              {title}
+            </h3>
+            {!isGroup && conversation.requestStatus === 'pending' && (
+              <span className="px-1.5 py-0.2 text-[9px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 rounded-full border border-amber-300 dark:border-amber-800 flex-shrink-0">
+                Request Sent
+              </span>
+            )}
+          </div>
 
           <span className="text-[11px] text-slate-400 dark:text-slate-500 flex-shrink-0">
             {formatTime(lastMsg?.createdAt || conversation.updatedAt)}

@@ -37,27 +37,65 @@ export const AuthProvider = ({ children }) => {
   };
 
   const login = async (loginIdentifier, password) => {
-    const res = await axios.post('/api/auth/login', {
-      login: loginIdentifier,
-      password
-    });
+    try {
+      const res = await axios.post('/api/auth/login', {
+        login: loginIdentifier,
+        password
+      });
 
-    if (res.data?.success) {
-      setToken(res.data.data.token);
-      setUser(res.data.data.user);
-      return res.data.data.user;
+      if (res.data?.success) {
+        setToken(res.data.data.token);
+        setUser(res.data.data.user);
+        return { success: true, user: res.data.data.user };
+      }
+      throw new Error(res.data?.message || 'Login failed');
+    } catch (error) {
+      // If email is not verified, pass requireVerification to UI
+      if (error.response?.data?.requireVerification) {
+        return {
+          requireVerification: true,
+          email: error.response.data.email,
+          devOtp: error.response.data.devOtp,
+          message: error.response.data.message
+        };
+      }
+      throw error;
     }
-    throw new Error(res.data?.message || 'Login failed');
   };
 
   const register = async (userData) => {
     const res = await axios.post('/api/auth/register', userData);
     if (res.data?.success) {
+      if (res.data.requireVerification) {
+        return {
+          requireVerification: true,
+          email: res.data.email,
+          devOtp: res.data.devOtp,
+          message: res.data.message
+        };
+      }
+      if (res.data.data?.token) {
+        setToken(res.data.data.token);
+        setUser(res.data.data.user);
+        return { success: true, user: res.data.data.user };
+      }
+    }
+    throw new Error(res.data?.message || 'Registration failed');
+  };
+
+  const verifyEmail = async ({ email, otp }) => {
+    const res = await axios.post('/api/auth/verify-email', { email, otp });
+    if (res.data?.success && res.data.data?.token) {
       setToken(res.data.data.token);
       setUser(res.data.data.user);
       return res.data.data.user;
     }
-    throw new Error(res.data?.message || 'Registration failed');
+    throw new Error(res.data?.message || 'Verification failed');
+  };
+
+  const resendOtp = async ({ email }) => {
+    const res = await axios.post('/api/auth/resend-otp', { email });
+    return res.data;
   };
 
   const logout = async () => {
@@ -92,6 +130,8 @@ export const AuthProvider = ({ children }) => {
         loading,
         login,
         register,
+        verifyEmail,
+        resendOtp,
         logout,
         updateProfile,
         refreshUser: fetchCurrentUser,

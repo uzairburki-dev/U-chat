@@ -40,6 +40,7 @@ export const getMessages = async (req, res) => {
 
     const messages = await Message.find(query)
       .populate('sender', 'username fullName avatar status customStatus lastSeen')
+      .populate('deletedByAdminUser', 'username fullName')
       .populate({
         path: 'replyTo',
         populate: {
@@ -109,8 +110,35 @@ export const sendMessage = async (req, res) => {
     if (!isParticipant) {
       return res.status(403).json({
         success: false,
-        message: 'Access denied'
+        message: 'Access denied: You are not a participant in this conversation'
       });
+    }
+
+    // Message Request Enforcement for 1-on-1 chats:
+    if (!conversation.isGroup && conversation.requestStatus === 'pending') {
+      const isRequestedByMe =
+        conversation.requestedBy &&
+        conversation.requestedBy.toString() === currentUserId.toString();
+
+      if (!isRequestedByMe) {
+        return res.status(403).json({
+          success: false,
+          message: 'Please accept the message request first to start chatting'
+        });
+      }
+
+      // Check if the sender has already sent an introductory request message
+      const existingMessageCount = await Message.countDocuments({
+        conversationId,
+        sender: currentUserId
+      });
+
+      if (existingMessageCount >= 1) {
+        return res.status(403).json({
+          success: false,
+          message: 'Message request is pending. Waiting for the recipient to accept before you can send more messages.'
+        });
+      }
     }
 
     // Create message
@@ -216,13 +244,13 @@ export const markMessagesAsRead = async (req, res) => {
   }
 };
 
-// @desc    Delete a message
+// @desc    Delete a message (Supports sender and Group Admin moderation)
 // @route   DELETE /api/messages/:id
 export const deleteMessage = async (req, res) => {
   try {
     const { id } = req.params;
     const { deleteType = 'forEveryone' } = req.body;
-    const currentUserId = req.user._id;
+    const currentUserId = req.user._id.toString();
 
     const message = await Message.findById(id);
     if (!message) {
@@ -232,26 +260,61 @@ export const deleteMessage = async (req, res) => {
       });
     }
 
+    const conversation = await Conversation.findById(message.conversationId);
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Associated conversation not found'
+      });
+    }
+
+    const isSender = message.sender.toString() === currentUserId;
+    const isGroupAdmin =
+      conversation.isGroup &&
+      ((conversation.groupAdmin && conversation.groupAdmin.toString() === currentUserId) ||
+        (conversation.admins && conversation.admins.some((aId) => aId.toString() === currentUserId)));
+
     if (deleteType === 'forEveryone') {
-      if (message.sender.toString() !== currentUserId.toString()) {
+      if (!isSender && !isGroupAdmin) {
         return res.status(403).json({
           success: false,
-          message: 'You can only delete your own messages for everyone'
+          message: 'Permission denied: You can only delete your own messages, or messages in groups where you are an admin'
         });
       }
 
       message.isDeleted = true;
-      message.text = 'This message was deleted';
+      message.deletedByAdmin = !isSender && isGroupAdmin;
+      if (message.deletedByAdmin) {
+        message.deletedByAdminUser = currentUserId;
+        message.text = 'This message was deleted by a group admin';
+      } else {
+        message.text = 'This message was deleted';
+      }
+
       message.fileUrl = '';
       message.fileName = '';
       message.fileSize = 0;
       message.reactions = [];
       await message.save();
 
+      const populated = await Message.findById(message._id)
+        .populate('sender', 'username fullName avatar status customStatus lastSeen')
+        .populate('deletedByAdminUser', 'username fullName');
+
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`conversation:${message.conversationId}`).emit('message_deleted_event', {
+          conversationId: message.conversationId,
+          messageId: message._id,
+          message: populated
+        });
+      }
+
       return res.status(200).json({
         success: true,
-        data: message,
-        deleteType: 'forEveryone'
+        data: populated,
+        deleteType: 'forEveryone',
+        deletedByAdmin: message.deletedByAdmin
       });
     } else {
       // Delete for me
