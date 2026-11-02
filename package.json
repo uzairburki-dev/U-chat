@@ -1,0 +1,22 @@
+{
+  "name": "chatboat-live-chat-app",
+  "version": "1.0.0",
+  "description": "Modern Real-Time Live Chat Web Application built with React, Tailwind CSS, Node.js, Express, Socket.IO, and MongoDB",
+  "scripts": {
+    "server": "node server/server.js",
+    "client": "npm --prefix client run dev",
+    "install:all": "npm --prefix server install && npm --prefix client install",
+    "seed": "node server/seed.js"
+  },
+  "keywords": [
+    "chat",
+    "socket.io",
+    "react",
+    "nodejs",
+    "mongodb",
+    "tailwindcss",
+    "realtime"
+  ],
+  "author": "",
+  "license": "MIT"
+}
