@@ -443,6 +443,9 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
+  // Auto-clear typing timers ref: { [convId_userId]: timeoutId }
+  const typingTimeoutsRef = useRef({});
+
   // Real-time socket event listeners
   useEffect(() => {
     if (!socket) return;
@@ -451,16 +454,40 @@ export const ChatProvider = ({ children }) => {
     const handleNewMessage = (newMsg) => {
       const currentActive = activeConversationRef.current;
       const isCurrentChat = currentActive && currentActive._id === newMsg.conversationId;
+      const isSender = (newMsg.sender?._id || newMsg.sender)?.toString() === user?._id?.toString();
+
+      // Clear typing indicator for the message sender in this chat
+      const senderId = (newMsg.sender?._id || newMsg.sender)?.toString();
+      if (senderId) {
+        const timerKey = `${newMsg.conversationId}_${senderId}`;
+        if (typingTimeoutsRef.current[timerKey]) {
+          clearTimeout(typingTimeoutsRef.current[timerKey]);
+          delete typingTimeoutsRef.current[timerKey];
+        }
+        setTypingMap((prev) => {
+          const currentList = prev[newMsg.conversationId] || [];
+          return {
+            ...prev,
+            [newMsg.conversationId]: currentList.filter(
+              (u) => (u._id || u).toString() !== senderId
+            )
+          };
+        });
+      }
 
       if (isCurrentChat) {
         setMessages((prev) => {
           if (prev.some((m) => m._id === newMsg._id)) return prev;
           return [...prev, newMsg];
         });
-        playNotificationSound();
-        markAsRead(newMsg.conversationId);
+        if (!isSender) {
+          playNotificationSound();
+          markAsRead(newMsg.conversationId);
+        }
       } else {
-        playNotificationSound();
+        if (!isSender) {
+          playNotificationSound();
+        }
       }
 
       // Update sidebar conversation item & unread count
@@ -469,12 +496,12 @@ export const ChatProvider = ({ children }) => {
         const updated = prev.map((c) => {
           if (c._id === newMsg.conversationId) {
             found = true;
-            const currentUnread = c.unreadCounts ? (c.unreadCounts[user._id] || 0) : 0;
-            const nextUnread = isCurrentChat ? 0 : currentUnread + 1;
+            const currentUnread = c.unreadCounts ? (c.unreadCounts[user?._id] || 0) : 0;
+            const nextUnread = isCurrentChat || isSender ? 0 : currentUnread + 1;
             return {
               ...c,
               lastMessage: newMsg,
-              unreadCounts: { ...c.unreadCounts, [user._id]: nextUnread },
+              unreadCounts: { ...c.unreadCounts, [user?._id]: nextUnread },
               updatedAt: new Date().toISOString()
             };
           }
@@ -563,7 +590,7 @@ export const ChatProvider = ({ children }) => {
       }
     };
 
-    // User typing
+    // User typing with 3.5s auto-clear safety timeout
     const handleUserTyping = ({ conversationId, user: typingUser }) => {
       setTypingMap((prev) => {
         const currentList = prev[conversationId] || [];
@@ -573,27 +600,53 @@ export const ChatProvider = ({ children }) => {
           [conversationId]: [...currentList, typingUser]
         };
       });
+
+      // Auto-clear indicator after 3.5s if stop_typing wasn't received
+      const timerKey = `${conversationId}_${typingUser._id}`;
+      if (typingTimeoutsRef.current[timerKey]) {
+        clearTimeout(typingTimeoutsRef.current[timerKey]);
+      }
+      typingTimeoutsRef.current[timerKey] = setTimeout(() => {
+        setTypingMap((prev) => {
+          const currentList = prev[conversationId] || [];
+          return {
+            ...prev,
+            [conversationId]: currentList.filter((u) => u._id !== typingUser._id)
+          };
+        });
+        delete typingTimeoutsRef.current[timerKey];
+      }, 3500);
     };
 
     // User stop typing
-    const handleUserStopTyping = ({ conversationId, userId }) => {
+    const handleUserStopTyping = ({ conversationId, userId: stoppedUserId }) => {
+      const timerKey = `${conversationId}_${stoppedUserId}`;
+      if (typingTimeoutsRef.current[timerKey]) {
+        clearTimeout(typingTimeoutsRef.current[timerKey]);
+        delete typingTimeoutsRef.current[timerKey];
+      }
       setTypingMap((prev) => {
         const currentList = prev[conversationId] || [];
         return {
           ...prev,
-          [conversationId]: currentList.filter((u) => u._id !== userId)
+          [conversationId]: currentList.filter(
+            (u) => (u._id || u).toString() !== stoppedUserId.toString()
+          )
         };
       });
     };
 
-    // Read receipts
+    // Read receipts (Instant Blue double tick update)
     const handleMessagesRead = ({ conversationId, readByUserId }) => {
       if (activeConversationRef.current?._id === conversationId) {
         setMessages((prev) =>
           prev.map((m) => {
-            if (!m.readBy) m.readBy = [];
-            if (!m.readBy.includes(readByUserId)) {
-              return { ...m, readBy: [...m.readBy, readByUserId] };
+            const currentReadBy = m.readBy || [];
+            const hasRead = currentReadBy.some(
+              (id) => (id._id || id).toString() === readByUserId.toString()
+            );
+            if (!hasRead) {
+              return { ...m, readBy: [...currentReadBy, readByUserId] };
             }
             return m;
           })
@@ -638,6 +691,32 @@ export const ChatProvider = ({ children }) => {
     socket.on('message_reaction_updated', handleReactionUpdated);
     socket.on('message_deleted_event', handleMessageDeleted);
 
+    // Handle auto-sync on socket reconnect
+    const handleReconnect = () => {
+      fetchConversations();
+      fetchMessageRequests();
+      fetchGroupInvitations();
+      if (activeConversationRef.current?._id) {
+        fetchMessages(activeConversationRef.current._id);
+        markAsRead(activeConversationRef.current._id);
+      }
+    };
+
+    socket.on('reconnect', handleReconnect);
+    socket.on('connect', handleReconnect);
+
+    // Tab visibility change auto-sync (restores missed updates after sleeping or switching tabs)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && user) {
+        fetchConversations();
+        if (activeConversationRef.current?._id) {
+          fetchMessages(activeConversationRef.current._id);
+          markAsRead(activeConversationRef.current._id);
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       socket.off('new_message', handleNewMessage);
       socket.off('conversation_updated');
@@ -653,8 +732,15 @@ export const ChatProvider = ({ children }) => {
       socket.off('messages_read', handleMessagesRead);
       socket.off('message_reaction_updated', handleReactionUpdated);
       socket.off('message_deleted_event', handleMessageDeleted);
+      socket.off('reconnect', handleReconnect);
+      socket.off('connect', handleReconnect);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+      // Clear all active typing timeout handlers
+      Object.values(typingTimeoutsRef.current).forEach((t) => clearTimeout(t));
+      typingTimeoutsRef.current = {};
     };
-  }, [socket, user?._id, playNotificationSound, markAsRead, fetchConversations, fetchMessageRequests, fetchGroupInvitations]);
+  }, [socket, user, playNotificationSound, markAsRead, fetchConversations, fetchMessageRequests, fetchGroupInvitations, fetchMessages]);
 
   // Filter conversations
   const filteredConversations = conversations.filter((c) => {

@@ -191,6 +191,24 @@ export const sendMessage = async (req, res) => {
       })
       .populate('reactions.user', 'username fullName avatar');
 
+    // Real-Time Socket Emission (Instant delivery to room & all participant personal rooms)
+    const io = req.app.get('io');
+    if (io) {
+      // 1. Deliver to active conversation room
+      io.to(`conversation:${conversationId}`).emit('new_message', populatedMessage);
+
+      // 2. Deliver to each participant personal room (ensures delivery even if chat isn't currently open)
+      conversation.participants.forEach((pId) => {
+        const pIdStr = pId._id ? pId._id.toString() : pId.toString();
+        io.to(`user:${pIdStr}`).emit('new_message', populatedMessage);
+        io.to(`user:${pIdStr}`).emit('conversation_updated', {
+          conversationId: conversationId.toString(),
+          lastMessage: populatedMessage,
+          unreadCounts: conversation.unreadCounts
+        });
+      });
+    }
+
     res.status(201).json({
       success: true,
       data: populatedMessage
@@ -230,6 +248,27 @@ export const markMessagesAsRead = async (req, res) => {
         conversation.unreadCounts[currentUserId.toString()] = 0;
       }
       await conversation.save();
+    }
+
+    // Real-Time Socket Emission for Read Receipts (Blue double ticks)
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`conversation:${conversationId}`).emit('messages_read', {
+        conversationId,
+        readByUserId: currentUserId.toString()
+      });
+
+      if (conversation && conversation.participants) {
+        conversation.participants.forEach((pId) => {
+          const pIdStr = pId._id ? pId._id.toString() : pId.toString();
+          if (pIdStr !== currentUserId.toString()) {
+            io.to(`user:${pIdStr}`).emit('messages_read', {
+              conversationId,
+              readByUserId: currentUserId.toString()
+            });
+          }
+        });
+      }
     }
 
     res.status(200).json({
@@ -308,6 +347,17 @@ export const deleteMessage = async (req, res) => {
           messageId: message._id,
           message: populated
         });
+
+        if (conversation && conversation.participants) {
+          conversation.participants.forEach((pId) => {
+            const pIdStr = pId._id ? pId._id.toString() : pId.toString();
+            io.to(`user:${pIdStr}`).emit('message_deleted_event', {
+              conversationId: message.conversationId,
+              messageId: message._id,
+              message: populated
+            });
+          });
+        }
       }
 
       return res.status(200).json({
@@ -384,6 +434,28 @@ export const reactToMessage = async (req, res) => {
 
     const populated = await Message.findById(message._id)
       .populate('reactions.user', 'username fullName avatar');
+
+    // Real-Time Socket Emission for Reactions
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`conversation:${message.conversationId}`).emit('message_reaction_updated', {
+        conversationId: message.conversationId,
+        messageId: message._id,
+        reactions: populated.reactions
+      });
+
+      const conversation = await Conversation.findById(message.conversationId);
+      if (conversation && conversation.participants) {
+        conversation.participants.forEach((pId) => {
+          const pIdStr = pId._id ? pId._id.toString() : pId.toString();
+          io.to(`user:${pIdStr}`).emit('message_reaction_updated', {
+            conversationId: message.conversationId,
+            messageId: message._id,
+            reactions: populated.reactions
+          });
+        });
+      }
+    }
 
     res.status(200).json({
       success: true,

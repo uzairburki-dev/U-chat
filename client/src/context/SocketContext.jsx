@@ -96,12 +96,15 @@ export const SocketProvider = ({ children }) => {
       return;
     }
 
-    // Connect to Socket.IO backend
+    // Connect to Socket.IO backend with websocket & polling fallback
     const newSocket = io('/', {
       auth: { token },
+      transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000
     });
 
     newSocket.on('connect', () => {
@@ -109,8 +112,13 @@ export const SocketProvider = ({ children }) => {
       setIsConnected(true);
     });
 
-    newSocket.on('disconnect', () => {
-      console.log('🔴 Socket disconnected');
+    newSocket.on('reconnect', (attempt) => {
+      console.log(`🔄 Socket reconnected after ${attempt} attempts`);
+      setIsConnected(true);
+    });
+
+    newSocket.on('disconnect', (reason) => {
+      console.log('🔴 Socket disconnected:', reason);
       setIsConnected(false);
     });
 

@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import Conversation from '../models/Conversation.js';
 
 // Map: userId -> Set of socket IDs
 const onlineUsers = new Map();
@@ -48,6 +49,20 @@ export const initSocket = (io) => {
     // Join personal room for private notifications
     socket.join(`user:${userId}`);
 
+    // Automatically join all existing active conversation rooms for this user
+    try {
+      const userConversations = await Conversation.find({
+        participants: socket.user._id,
+        deletedBy: { $ne: socket.user._id }
+      }).select('_id');
+
+      userConversations.forEach((conv) => {
+        socket.join(`conversation:${conv._id.toString()}`);
+      });
+    } catch (err) {
+      console.warn('Auto-joining conversations error:', err.message);
+    }
+
     // Update database status
     await User.findByIdAndUpdate(userId, {
       status: 'online',
@@ -85,14 +100,15 @@ export const initSocket = (io) => {
 
       const conversationRoom = `conversation:${message.conversationId}`;
       
-      // Broadcast new message to conversation room (including sender or excluding sender if sender adds optimistically)
+      // Broadcast new message to conversation room
       socket.to(conversationRoom).emit('new_message', message);
 
-      // Notify all participant personal rooms about conversation update / new message
+      // Notify all participant personal rooms about conversation update AND new message
       if (message.participants && Array.isArray(message.participants)) {
         message.participants.forEach((participant) => {
           const participantId = participant._id ? participant._id.toString() : participant.toString();
           if (participantId !== userId) {
+            io.to(`user:${participantId}`).emit('new_message', message);
             io.to(`user:${participantId}`).emit('conversation_updated', {
               conversationId: message.conversationId,
               lastMessage: message

@@ -33,7 +33,8 @@ export const MessageItem = ({ message, isGroup = false }) => {
   const [showDeleteMenu, setShowDeleteMenu] = useState(false);
 
   const currentUserId = user?._id;
-  const isSender = (message.sender?._id || message.sender) === currentUserId;
+  const isSender =
+    (message.sender?._id || message.sender)?.toString() === currentUserId?.toString();
   const isDeleted = message.isDeleted;
 
   // Check if current user is an admin or creator of this group
@@ -80,17 +81,21 @@ export const MessageItem = ({ message, isGroup = false }) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
-  // WhatsApp-style Checkmarks
+  // WhatsApp-style Checkmarks (Sent, Delivered, Seen / Read)
   const renderStatus = () => {
     if (!isSender || isDeleted) return null;
 
-    const isRead = message.readBy && message.readBy.length > 1;
+    const isRead =
+      message.readBy &&
+      message.readBy.some(
+        (id) => (id?._id || id).toString() !== currentUserId?.toString()
+      );
 
     if (isRead) {
       return (
         <CheckCheck
           className="w-3.5 h-3.5 text-sky-500 dark:text-sky-400"
-          title="Read"
+          title="Read (Seen)"
         />
       );
     }
