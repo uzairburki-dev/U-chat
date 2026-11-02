@@ -66,7 +66,9 @@ export const connectDB = async () => {
   const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/chatboat';
 
   isConnecting = mongoose
-    .connect(MONGO_URI)
+    .connect(MONGO_URI, {
+      serverSelectionTimeoutMS: 8000
+    })
     .then((conn) => {
       const dbName = conn.connection.name;
       const dbHost = conn.connection.host || 'cluster';
@@ -91,9 +93,20 @@ app.use(async (req, res, next) => {
         await connectDB();
       }
     } catch (err) {
+      const hasMongoUri = !!process.env.MONGO_URI;
+      let hint = '';
+
+      if (!hasMongoUri) {
+        hint = 'MONGO_URI environment variable is missing. In production (Vercel), please configure MONGO_URI in Project Settings > Environment Variables.';
+      } else if (err.message.includes('ECONNREFUSED') || err.message.includes('timed out') || err.message.includes('querySrv')) {
+        hint = 'Cannot reach MongoDB Atlas. Please ensure 0.0.0.0/0 is added in MongoDB Atlas Network Access (IP Access List).';
+      } else {
+        hint = err.message;
+      }
+
       return res.status(503).json({
         success: false,
-        message: 'Database service is currently connecting. Please try again in a moment.'
+        message: `Database connection unavailable: ${hint}`
       });
     }
   }
@@ -108,6 +121,7 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
     database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    hasMongoUriEnv: !!process.env.MONGO_URI,
     timestamp: new Date().toISOString(),
     service: 'ChatBoat Live Chat API'
   });
