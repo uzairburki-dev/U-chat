@@ -1,34 +1,58 @@
 import nodemailer from 'nodemailer';
 
 export const sendOtpEmail = async (email, otp, fullName = 'User') => {
-  const hasSmtpConfig = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
+  const isProd = process.env.NODE_ENV === 'production';
+  const hasSmtpConfig =
+    (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) ||
+    (process.env.EMAIL_USER && process.env.EMAIL_PASS);
 
-  console.log(`\n======================================================`);
-  console.log(`📧 [ChatBoat Email Verification OTP]`);
-  console.log(`Recipient: ${fullName} <${email}>`);
-  console.log(`Verification Code (OTP):  👉  ${otp}  👈`);
-  console.log(`Expires in: 10 minutes`);
-  console.log(`======================================================\n`);
+  // In non-production only, log notification safely without exposing sensitive info in production
+  if (!isProd) {
+    console.log(`[Email Service (Dev)] Sending OTP to recipient: ${email} (simulated: ${!hasSmtpConfig})`);
+  }
 
   if (!hasSmtpConfig) {
-    // In local development or environments without SMTP credentials,
-    // the code is logged directly to console above for immediate testing.
+    // Environments without SMTP credentials operate in simulation mode
     return { success: true, simulated: true };
   }
 
   try {
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT) || 587,
-      secure: Number(process.env.SMTP_PORT) === 465,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS
-      }
-    });
+    let transporterConfig;
+
+    if (process.env.SMTP_HOST) {
+      transporterConfig = {
+        host: process.env.SMTP_HOST,
+        port: Number(process.env.SMTP_PORT) || 587,
+        secure: Number(process.env.SMTP_PORT) === 465,
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS
+        },
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 5000
+      };
+    } else {
+      transporterConfig = {
+        service: 'gmail',
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS
+        },
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 5000
+      };
+    }
+
+    const transporter = nodemailer.createTransport(transporterConfig);
+
+    const fromAddress =
+      process.env.EMAIL_FROM ||
+      `"ChatBoat" <${process.env.SMTP_USER || process.env.EMAIL_USER}>`;
 
     const mailOptions = {
-      from: process.env.EMAIL_FROM || `"ChatBoat" <${process.env.SMTP_USER}>`,
+      from: fromAddress,
       to: email,
       subject: `Your ChatBoat Verification Code: ${otp}`,
       html: `
@@ -61,7 +85,7 @@ export const sendOtpEmail = async (email, otp, fullName = 'User') => {
     await transporter.sendMail(mailOptions);
     return { success: true, simulated: false };
   } catch (error) {
-    console.error('SMTP Email send error (proceeding with console fallback):', error.message);
+    console.error('Email send failed (falling back):', error.message);
     return { success: true, simulated: true, error: error.message };
   }
 };

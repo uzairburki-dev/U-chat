@@ -18,16 +18,17 @@ import uploadRoutes from './routes/uploadRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import { initSocket } from './socket/socketHandler.js';
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Ensure server/.env is loaded regardless of working directory
+dotenv.config({ path: path.join(__dirname, '.env') });
+dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
 
 const PORT = process.env.PORT || 5000;
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
 // Setup Socket.IO
 const io = new Server(server, {
@@ -52,6 +53,53 @@ app.use(cors({
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
+// Database connection management with connection pooling & state caching
+let isConnecting = null;
+export const connectDB = async () => {
+  if (mongoose.connection.readyState === 1) {
+    return mongoose.connection;
+  }
+  if (isConnecting) {
+    return isConnecting;
+  }
+
+  const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/chatboat';
+
+  isConnecting = mongoose
+    .connect(MONGO_URI)
+    .then((conn) => {
+      const dbName = conn.connection.name;
+      const dbHost = conn.connection.host || 'cluster';
+      console.log(`✅ Connected to MongoDB database: [${dbName}] on host: ${dbHost}`);
+      isConnecting = null;
+      return conn;
+    })
+    .catch((err) => {
+      isConnecting = null;
+      console.error('❌ MongoDB connection error:', err.message);
+      throw err;
+    });
+
+  return isConnecting;
+};
+
+// Ensure database connection is ready for API requests
+app.use(async (req, res, next) => {
+  if (req.path.startsWith('/api') && req.path !== '/api/health') {
+    try {
+      if (mongoose.connection.readyState !== 1) {
+        await connectDB();
+      }
+    } catch (err) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database service is currently connecting. Please try again in a moment.'
+      });
+    }
+  }
+  next();
+});
+
 // Static uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -59,6 +107,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString(),
     service: 'ChatBoat Live Chat API'
   });
@@ -74,20 +123,17 @@ app.use('/api/upload', uploadRoutes);
 app.use(notFound);
 app.use(errorHandler);
 
-// Connect to MongoDB & Start Server
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/chatboat';
-
-mongoose
-  .connect(MONGO_URI)
+// Start server
+connectDB()
   .then(() => {
-    console.log('✅ Connected to MongoDB successfully:', MONGO_URI);
     server.listen(PORT, () => {
       console.log(`🚀 ChatBoat Server running on http://localhost:${PORT}`);
     });
   })
-  .catch((err) => {
-    console.error('❌ MongoDB connection error:', err.message);
-    process.exit(1);
+  .catch(() => {
+    server.listen(PORT, () => {
+      console.log(`🚀 ChatBoat Server running on http://localhost:${PORT} (awaiting database connection)`);
+    });
   });
 
 export default app;

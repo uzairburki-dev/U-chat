@@ -6,6 +6,11 @@ import Message from './models/Message.js';
 
 dotenv.config();
 
+if (process.env.NODE_ENV === 'production') {
+  console.error('⛔ Seeding demo data is disabled in production to protect genuine data.');
+  process.exit(1);
+}
+
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/chatboat';
 
 const demoUsers = [
@@ -54,13 +59,12 @@ const demoUsers = [
 const seedData = async () => {
   try {
     await mongoose.connect(MONGO_URI);
-    console.log('Connected to MongoDB for seeding...');
+    console.log('Connected to development MongoDB instance for seeding...');
 
-    // Clear existing data
-    await User.deleteMany({});
-    await Conversation.deleteMany({});
-    await Message.deleteMany({});
-    console.log('Cleared existing database records.');
+    // Remove only demo users
+    const demoUsernames = demoUsers.map((u) => u.username);
+    await User.deleteMany({ username: { $in: demoUsernames } });
+    console.log('Cleared previous development demo records.');
 
     // Create demo users
     const createdUsers = [];
@@ -71,93 +75,12 @@ const seedData = async () => {
       });
       createdUsers.push(user);
     }
-    console.log(`Created ${createdUsers.length} demo users.`);
-
-    const [alex, sarah, david, emily] = createdUsers;
-
-    // Create 1-to-1 conversation between Alex and Sarah
-    const convoAlexSarah = await Conversation.create({
-      participants: [alex._id, sarah._id],
-      isGroup: false,
-      unreadCounts: {
-        [alex._id.toString()]: 0,
-        [sarah._id.toString()]: 0
-      }
-    });
-
-    const m1 = await Message.create({
-      conversationId: convoAlexSarah._id,
-      sender: alex._id,
-      text: 'Hey Sarah! Have you checked out the new ChatBoat interface design? 🚀',
-      messageType: 'text',
-      readBy: [alex._id, sarah._id]
-    });
-
-    const m2 = await Message.create({
-      conversationId: convoAlexSarah._id,
-      sender: sarah._id,
-      text: 'Yes! The glassmorphism and real-time Socket.IO synchronization look fantastic! 🌟',
-      messageType: 'text',
-      replyTo: m1._id,
-      readBy: [alex._id, sarah._id]
-    });
-
-    const m3 = await Message.create({
-      conversationId: convoAlexSarah._id,
-      sender: alex._id,
-      text: 'Awesome, everything is completely responsive and real-time!',
-      messageType: 'text',
-      readBy: [alex._id, sarah._id]
-    });
-
-    convoAlexSarah.lastMessage = m3._id;
-    await convoAlexSarah.save();
-
-    // Create group conversation "Design & Engineering"
-    const groupConvo = await Conversation.create({
-      groupName: '🚀 Product & Engineering Team',
-      groupDescription: 'Collaborative channel for building high quality products and features.',
-      groupAvatar: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150&auto=format&fit=crop&q=80',
-      isGroup: true,
-      groupAdmin: alex._id,
-      participants: [alex._id, sarah._id, david._id, emily._id],
-      unreadCounts: {
-        [alex._id.toString()]: 0,
-        [sarah._id.toString()]: 0,
-        [david._id.toString()]: 0,
-        [emily._id.toString()]: 0
-      }
-    });
-
-    const gm1 = await Message.create({
-      conversationId: groupConvo._id,
-      sender: alex._id,
-      text: 'Welcome team to the official ChatBoat workspace channel! 🎉',
-      messageType: 'text',
-      readBy: [alex._id, sarah._id, david._id]
-    });
-
-    const gm2 = await Message.create({
-      conversationId: groupConvo._id,
-      sender: david._id,
-      text: 'All backend APIs, Socket.IO channels and MongoDB connections are tested and operational! ⚡',
-      messageType: 'text',
-      readBy: [alex._id, sarah._id, david._id]
-    });
-
-    groupConvo.lastMessage = gm2._id;
-    await groupConvo.save();
-
-    console.log('✅ Seeding completed successfully!');
-    console.log('Demo Login credentials:');
-    console.log('Username: alex | Password: password123');
-    console.log('Username: sarah | Password: password123');
-    console.log('Username: david | Password: password123');
+    console.log(`Created ${createdUsers.length} development test users.`);
 
     await mongoose.disconnect();
     process.exit(0);
   } catch (error) {
-    console.error('Seeding error:', error);
+    console.error('Seeding error:', error.message);
     process.exit(1);
   }
 };

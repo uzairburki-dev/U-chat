@@ -16,10 +16,10 @@ import { useAuth } from '../context/AuthContext';
 import { Avatar } from '../components/common/Avatar';
 
 const AVATAR_OPTIONS = [
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&auto=format&fit=crop&q=80'
+  'https://api.dicebear.com/7.x/bottts/svg?seed=sparkle',
+  'https://api.dicebear.com/7.x/bottts/svg?seed=cosmo',
+  'https://api.dicebear.com/7.x/bottts/svg?seed=nexus',
+  'https://api.dicebear.com/7.x/bottts/svg?seed=nova'
 ];
 
 export const RegisterPage = ({ onNavigateToLogin, initialEmail = '', initialStep = 'form' }) => {

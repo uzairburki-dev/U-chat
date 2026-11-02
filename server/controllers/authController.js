@@ -18,7 +18,7 @@ const generateOtp = () => {
 // @route   POST /api/auth/register
 export const registerUser = async (req, res) => {
   try {
-    const { username, email, password, fullName, avatar, bio } = req.body;
+    const { username, email, password, fullName, avatar, bio } = req.body || {};
 
     if (!username || !email || !password || !fullName) {
       return res.status(400).json({
@@ -27,14 +27,43 @@ export const registerUser = async (req, res) => {
       });
     }
 
+    const cleanUsername = username.trim().toLowerCase();
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanFullName = fullName.trim();
+
+    // Username format and length validation
+    if (cleanUsername.length < 3) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username must be at least 3 characters long'
+      });
+    }
+
+    if (cleanUsername.length > 30) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username cannot exceed 30 characters'
+      });
+    }
+
+    const usernameRegex = /^[a-zA-Z0-9_.-]+$/;
+    if (!usernameRegex.test(cleanUsername)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username can only contain letters, numbers, underscores, periods, and dashes'
+      });
+    }
+
+    // Email format validation
     const emailRegex = /^\S+@\S+\.\S+$/;
-    if (!emailRegex.test(email)) {
+    if (!emailRegex.test(cleanEmail)) {
       return res.status(400).json({
         success: false,
         message: 'Please enter a valid email address'
       });
     }
 
+    // Password validation
     if (password.length < 6) {
       return res.status(400).json({
         success: false,
@@ -42,56 +71,83 @@ export const registerUser = async (req, res) => {
       });
     }
 
-    // Check if user already exists
-    const existingUser = await User.findOne({
-      $or: [{ email: email.toLowerCase() }, { username: username.toLowerCase() }]
-    });
+    // Separate lookups for email and username to handle duplicates with clear error messages
+    const [existingByEmail, existingByUsername] = await Promise.all([
+      User.findOne({ email: cleanEmail }),
+      User.findOne({ username: cleanUsername })
+    ]);
+
+    // Check if email belongs to an already verified account
+    if (existingByEmail && existingByEmail.isEmailVerified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email address is already in use by an active account. Please sign in or use a different email.'
+      });
+    }
+
+    // Check if username belongs to an already verified account
+    if (existingByUsername && existingByUsername.isEmailVerified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username is already taken. Please choose a different username.'
+      });
+    }
+
+    // If username is taken by a different unverified account
+    if (
+      existingByUsername &&
+      existingByEmail &&
+      existingByUsername._id.toString() !== existingByEmail._id.toString()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username is already in use by another registration. Please choose another username.'
+      });
+    }
+
+    if (existingByUsername && !existingByEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username is already taken. Please choose another username.'
+      });
+    }
 
     const otp = generateOtp();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const defaultAvatar =
+      avatar ||
+      `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanUsername)}`;
 
-    if (existingUser) {
-      // If user exists and is already verified, prevent duplicate
-      if (existingUser.isEmailVerified) {
-        const field = existingUser.email === email.toLowerCase() ? 'Email' : 'Username';
-        return res.status(400).json({
-          success: false,
-          message: `${field} is already in use by an active account`
-        });
-      }
+    // If user exists with this email but is unverified, update their registration details and send new OTP
+    if (existingByEmail) {
+      existingByEmail.username = cleanUsername;
+      existingByEmail.fullName = cleanFullName;
+      existingByEmail.password = password; // Hashed by pre-save
+      existingByEmail.emailOtp = otp;
+      existingByEmail.emailOtpExpires = otpExpires;
+      if (avatar) existingByEmail.avatar = avatar;
+      if (bio !== undefined) existingByEmail.bio = bio.trim();
 
-      // If user exists but is unverified, update their details and send new OTP
-      existingUser.username = username.toLowerCase();
-      existingUser.fullName = fullName;
-      existingUser.password = password; // Will be hashed by pre-save
-      existingUser.emailOtp = otp;
-      existingUser.emailOtpExpires = otpExpires;
-      if (avatar) existingUser.avatar = avatar;
-      if (bio) existingUser.bio = bio;
-      await existingUser.save();
-
-      await sendOtpEmail(existingUser.email, otp, existingUser.fullName);
+      await existingByEmail.save();
+      await sendOtpEmail(existingByEmail.email, otp, existingByEmail.fullName);
 
       return res.status(200).json({
         success: true,
         requireVerification: true,
-        email: existingUser.email,
-        message: 'Verification code sent to your email',
+        email: existingByEmail.email,
+        message: 'A verification code has been sent to your email address.',
         devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined
       });
     }
 
-    const defaultAvatar =
-      avatar ||
-      `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(username)}`;
-
+    // Brand new user registration
     const newUser = await User.create({
-      username: username.toLowerCase(),
-      email: email.toLowerCase(),
+      username: cleanUsername,
+      email: cleanEmail,
       password,
-      fullName,
+      fullName: cleanFullName,
       avatar: defaultAvatar,
-      bio: bio || 'Hey there! I am using ChatBoat.',
+      bio: bio ? bio.trim() : 'Hey there! I am using ChatBoat.',
       isEmailVerified: false,
       emailOtp: otp,
       emailOtpExpires: otpExpires
@@ -99,17 +155,38 @@ export const registerUser = async (req, res) => {
 
     await sendOtpEmail(newUser.email, otp, newUser.fullName);
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       requireVerification: true,
       email: newUser.email,
-      message: 'Verification code sent to your email address',
+      message: 'Verification code sent to your email address.',
       devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined
     });
   } catch (error) {
-    res.status(500).json({
+    console.error('Registration processing exception:', error.name, error.message);
+
+    // MongoDB duplicate key error (code 11000)
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern || error.keyValue || {})[0] || 'field';
+      const capitalizedField = field.charAt(0).toUpperCase() + field.slice(1);
+      return res.status(400).json({
+        success: false,
+        message: `${capitalizedField} is already registered. Please choose another.`
+      });
+    }
+
+    // Mongoose schema validation error
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map((e) => e.message);
+      return res.status(400).json({
+        success: false,
+        message: messages.join(', ')
+      });
+    }
+
+    return res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Registration could not be completed. Please check your details and try again.'
     });
   }
 };
@@ -118,7 +195,7 @@ export const registerUser = async (req, res) => {
 // @route   POST /api/auth/verify-email
 export const verifyEmail = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { email, otp } = req.body || {};
 
     if (!email || !otp) {
       return res.status(400).json({
@@ -127,7 +204,10 @@ export const verifyEmail = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanOtp = otp.toString().trim();
+
+    const user = await User.findOne({ email: cleanEmail });
 
     if (!user) {
       return res.status(404).json({
@@ -148,7 +228,7 @@ export const verifyEmail = async (req, res) => {
       });
     }
 
-    if (!user.emailOtp || user.emailOtp !== otp.trim()) {
+    if (!user.emailOtp || user.emailOtp !== cleanOtp) {
       return res.status(400).json({
         success: false,
         message: 'Invalid verification code. Please check and try again.'
@@ -172,7 +252,7 @@ export const verifyEmail = async (req, res) => {
 
     const token = generateToken(user._id);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'Email verified successfully! Welcome to ChatBoat.',
       data: {
@@ -181,9 +261,10 @@ export const verifyEmail = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({
+    console.error('Email verification error:', error.message);
+    return res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Verification process failed. Please try again.'
     });
   }
 };
@@ -192,7 +273,7 @@ export const verifyEmail = async (req, res) => {
 // @route   POST /api/auth/resend-otp
 export const resendOtp = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email } = req.body || {};
 
     if (!email) {
       return res.status(400).json({
@@ -201,7 +282,8 @@ export const resendOtp = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const cleanEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: cleanEmail });
 
     if (!user) {
       return res.status(404).json({
@@ -224,15 +306,16 @@ export const resendOtp = async (req, res) => {
 
     await sendOtpEmail(user.email, otp, user.fullName);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'New verification code sent to your email',
       devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined
     });
   } catch (error) {
-    res.status(500).json({
+    console.error('Resend OTP error:', error.message);
+    return res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Could not resend verification code. Please try again later.'
     });
   }
 };
@@ -241,7 +324,7 @@ export const resendOtp = async (req, res) => {
 // @route   POST /api/auth/login
 export const loginUser = async (req, res) => {
   try {
-    const { login, password } = req.body;
+    const { login, password } = req.body || {};
 
     if (!login || !password) {
       return res.status(400).json({
@@ -250,9 +333,10 @@ export const loginUser = async (req, res) => {
       });
     }
 
-    const query = login.includes('@')
-      ? { email: login.toLowerCase() }
-      : { username: login.toLowerCase() };
+    const cleanLogin = login.trim().toLowerCase();
+    const query = cleanLogin.includes('@')
+      ? { email: cleanLogin }
+      : { username: cleanLogin };
 
     const user = await User.findOne(query);
 
@@ -296,7 +380,7 @@ export const loginUser = async (req, res) => {
 
     const token = generateToken(user._id);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: {
         user: user.toSafeObject(),
@@ -304,9 +388,10 @@ export const loginUser = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({
+    console.error('Login error:', error.message);
+    return res.status(500).json({
       success: false,
-      message: error.message
+      message: 'An error occurred during sign in. Please try again.'
     });
   }
 };
@@ -316,12 +401,15 @@ export const loginUser = async (req, res) => {
 export const getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('-password');
-    res.status(200).json({
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    return res.status(200).json({
       success: true,
       data: user
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -332,7 +420,7 @@ export const getMe = async (req, res) => {
 // @route   PUT /api/auth/profile
 export const updateProfile = async (req, res) => {
   try {
-    const { fullName, bio, status, customStatus, avatar } = req.body;
+    const { fullName, bio, status, customStatus, avatar } = req.body || {};
     const user = await User.findById(req.user._id);
 
     if (!user) {
@@ -349,12 +437,12 @@ export const updateProfile = async (req, res) => {
 
     await user.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: user.toSafeObject()
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
@@ -374,12 +462,12 @@ export const logoutUser = async (req, res) => {
       }
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: 'Logged out successfully'
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: error.message
     });

@@ -30,12 +30,6 @@ export const LoginPage = ({ onNavigateToRegister }) => {
     }
   };
 
-  const handleQuickLogin = (demoUsername) => {
-    setIdentifier(demoUsername);
-    setPassword('password123');
-    setError('');
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-100 via-brand-50/40 to-slate-200 dark:from-[#0b0f19] dark:via-slate-900 dark:to-[#0f172a] select-none">
       <div className="w-full max-w-4xl grid md:grid-cols-5 bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden">
@@ -98,7 +92,7 @@ export const LoginPage = ({ onNavigateToRegister }) => {
                     type="text"
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="alex or alex@chatboat.io"
+                    placeholder="Enter your email or username"
                     required
                     className="w-full pl-10 pr-3.5 py-2.5 text-xs bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 focus:border-brand-500 focus:bg-white dark:focus:bg-slate-800 focus:outline-none text-slate-800 dark:text-slate-100 transition-all shadow-inner"
                   />
@@ -138,31 +132,8 @@ export const LoginPage = ({ onNavigateToRegister }) => {
               </button>
             </form>
 
-            {/* Quick Demo Accounts */}
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
-              <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
-                Quick Demo Accounts (1-Click)
-              </span>
-              <div className="grid grid-cols-3 gap-1.5">
-                {[
-                  { name: 'Alex', user: 'alex' },
-                  { name: 'Sarah', user: 'sarah' },
-                  { name: 'David', user: 'david' }
-                ].map((demo) => (
-                  <button
-                    key={demo.user}
-                    type="button"
-                    onClick={() => handleQuickLogin(demo.user)}
-                    className="py-1.5 px-2 bg-slate-100 dark:bg-slate-800 hover:bg-brand-50 dark:hover:bg-brand-950/40 hover:text-brand-600 text-slate-700 dark:text-slate-300 text-[11px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 transition-colors"
-                  >
-                    {demo.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Switch to Register */}
-            <div className="text-center text-xs text-slate-500 dark:text-slate-400">
+            <div className="text-center text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-800">
               Don't have an account?{' '}
               <button
                 type="button"
